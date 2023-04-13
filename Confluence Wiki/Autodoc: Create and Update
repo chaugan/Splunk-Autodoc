@@ -1,0 +1,118 @@
+| makeresults 
+``` parentWikiPage: The parent page from where the new wiki pages should be created under ```
+| eval parentWikiPage=<WikiPageID> 
+``` parentWikiUrl: For when you already have implemented the autodoc feature, this url is used to find the pages that needs to be updated, where applicable```
+| eval parentWikiUrl="https://<WikiHostname>/rest/api/content/search?cql=parent=".parentWikiPage."&limit=1000"
+| eval Authentication="<Your Wiki Authentication>"
+| eval header="{\"Authorization\":\"".Authentication."\",\"Content-Type\":\"application/json\",\"X-Atlassian-Token\": \"no-check\"}" 
+| curl method=get urifield=parentWikiUrl headerfield=header debug=t stringdata=yes 
+| spath input=curl_message output=children path="results{}" 
+| mvexpand children 
+| spath input=children 
+| rename expandable.history as history 
+``` No Trailing slash in WikiHostname below ```
+| eval url="https://<WikiHostname>".history 
+| curl method=get urifield=url headerfield=header debug=t stringdata=yes 
+| eval latest = json_extract(curl_message,"lastUpdated") 
+| eval number = json_extract(latest,"number")+1 
+| append 
+    [| rest/servicesNS/-/-/saved/searches 
+    | search eai:acl.app=* search="*``` Autodoc*" 
+    | rename id as splunkAlertID 
+    | fields title author cron_schedule updated dispatch.earliest_time dispatch.latest_time search eai:acl.app action.email.to action.email.subject.alert action.email.message.alert alert.suppress.period description action.email splunkAlertID] 
+| eval updated=strptime(updated,"%Y-%m-%dT%H:%M:%S%z") 
+| eval lastChanged=now()-updated 
+| rename eai:acl.app as foundinapp dispatch.latest_time as latestSplunk_time dispatch.earliest_time as earliestSplunk_time action.email.to as emailTo action.email.subject.alert as emailSubject action.email.message.alert as emailMessage alert.suppress.period as supressionTime action.email as emailAction 
+| selfjoin max=0 title keepsingle=true overwrite=false 
+| eval wikiId=if(isnull(id),"null",id) 
+| eval cron_schedule_web=cron_schedule 
+| rex field=splunkAlertID mode=sed "s/%3D/%20/g" 
+| rex field=splunkAlertID "searches\/(?<alertURL>.*)" 
+``` URL to the Splunk "Searches, reports, and alerts" manager ```
+| eval alertURL="https://<SplunkSearchesManager>/manager/".foundinapp."/saved/searches?search=".alertURL 
+| rex field=search "(?ms)`{3}\n(?<searchOnly>([^$]+)$)" max_match=0 
+| rex field=search "(?ms)```(?<searchOnly2>.*([^```]*)$)" max_match=0 
+| rex field=search "(?ms)`{3}\n(?<searchOnly3>[^$].*)$" max_match=0 
+| rex field=search "^(?<frontSearch>[^`{3}]+)" 
+| eval searchOnly=if(isnull(searchOnly),searchOnly2,searchOnly) 
+| eval searchOnly=if(isnotnull(frontSearch),frontSearch.searchOnly,searchOnly) 
+| eval searchOnly=if(isnull(searchOnly) OR len(searchOnly3)>len(searchOnly),searchOnly3,searchOnly) 
+| rex field=search "`{3}\s?(?<comment>[^```]+)\s?```" max_match=0 
+| rex field=comment "(?ms)^Autodoc(?<comment>[^$].*)" 
+| rex field=comment mode=sed "s/^(\r|\n)|(\r|\n)$//" 
+| rex field=comment mode=sed "s/&/\&amp;/g" 
+| rex field=comment mode=sed "s/\</\&lt;/g" 
+| rex field=comment mode=sed "s/\>/\&gt;/g" 
+| rex field=comment mode=sed "s/(\r|\n)|(\r|\n)/<br\/>/g" 
+| rex field=searchOnly "(?ms)(datamodel=(?<dependencyDatamodel>[^\s]+))|(\|\s?inputlookup\s(?<dependencyInputlookup>[^\s|\]]+))|(\|\s?`\s?(?<dependencyMacro>[^\(|\r|\n|`]+))" max_match=0 
+| eval dependencyDatamodel=mvdedup(dependencyDatamodel), dependencyInputlookup=mvdedup(dependencyInputlookup), dependencyMacro=mvdedup(dependencyMacro) 
+| nomv dependencyInputlookup 
+| nomv dependencyDatamodel 
+| nomv dependencyMacro 
+| rex field=dependencyInputlookup mode=sed "s/\n/<br\/>/g" 
+| rex field=dependencyDatamodel mode=sed "s/\n/<br\/>/g" 
+| rex field=dependencyMacro mode=sed "s/\n/<br\/>/g" 
+| eval dependencyInputlookup="<h2>Lookup (CSV+KV-store) dependency</h2>".if(isnull(dependencyInputlookup),"-None-",dependencyInputlookup)."<p\/>" 
+| eval dependencyDatamodel="<h2>Datamodel dependency</h2>".if(isnull(dependencyDatamodel),"-None-",dependencyDatamodel)."<p\/>" 
+| eval dependencyMacro="<h2>Macro dependency</h2>".if(isnull(dependencyMacro),"-None-",dependencyMacro)."<p\/>" 
+| rex field=searchOnly mode=sed "s/&/\&amp;/g" 
+| rex field=searchOnly mode=sed "s/\"/\&quot;/g" 
+| rex field=searchOnly mode=sed "s/\\\/\\\\\\\/g" 
+| rex field=searchOnly mode=sed "s/\>/\&gt;/g" 
+| rex field=searchOnly mode=sed "s/\</\&lt;/g" 
+| rex field=searchOnly mode=sed "s/(\r|\n)|(\r|\n)/<br\/>/g" 
+| rex field=searchOnly mode=sed "s/\|\s(\w+)/| <font color='#2662FC'>\1<\/font>/g" 
+| rex field=searchOnly mode=sed "s/\s(LIKE|OR|AND|as|IN|AS|by|from|where|NOT)\s/ <font color='#F58220'>\1<\/font> /g" 
+| rex field=searchOnly mode=sed "s/(if|now)\(/<font color='#CF00CF'>\1<\/font>(/g" 
+| rex field=searchOnly mode=sed "s/(count)(\W)/<font color='#CF00CF'>\1<\/font>\2/g" 
+| rex field=searchOnly mode=sed "s/(mvindex|isnull|isnotnull|sum|strptime|strftime|case|trim|match|round|lower|upper|substr)/<font color='#CF00CF'>\1<\/font>/g" 
+| rex field=searchOnly mode=sed "s/(maxsearches|max|keepsingle|overwrite|keeporphans|span|datamodel|endswith|startswith|prestats|summariesonly|method|debug|reset_on_change|reset_before|delim|partial)/<font color='#5CA300'>\1<\/font>/g" 
+| rex field=searchOnly mode=sed "s/\s(field)=|\s(input)=|\s(type)=/ <font color='#5CA300'>\1\2\3<\/font>=/g" 
+| rex field=searchOnly mode=sed "s/(mode)=/<font color='#5CA300'>\1<\/font>=/g" 
+| rex field=cron_schedule_web mode=sed "s/\s/_/g" 
+``` parentWikiPage: The parent page from where the new wiki pages should be created under ```
+| eval parentWikiPage=<WikiPageID> 
+| eval supressionTime=if(supressionTime="","n/a",supressionTime) 
+| eval supressionTime="<h2>Suppress the alert if it repeats</h2>".supressionTime 
+| eval description=if(description="","-- Empty --",description) 
+| rex field=emailMessage mode=sed "s/\>/\&gt;/g" 
+| rex field=emailMessage mode=sed "s/\</\&lt;/g" 
+| rex field=emailMessage mode=sed "s/§/Paragraf/g" 
+| rex field=emailSubject mode=sed "s/\>/\&gt;/g" 
+| rex field=emailSubject mode=sed "s/\</\&lt;/g" 
+| rex field=emailTo mode=sed "s/,/<br\/>/g" 
+| eval emailSubject=if(emailSubject="","n/a",emailSubject),emailMessage=if(isnull(emailMessage),"n/a",emailMessage) 
+| eval email="<h2>E-mail to</h2>".emailTo."<h2>E-mail subject</h2>".emailSubject."<h2>E-mail message</h2>".emailMessage 
+| eval email=if(emailAction=1,if(isnull(email),"<h3>Missing email information</h3>",email),"<h2>Not an email alert</h2>") 
+| rex field=email mode=sed "s/&/\&amp;/g" 
+| rex field=email mode=sed "s/\"/\&quot;/g" 
+| rex field=email mode=sed "s/\\\/\\\\\\\/g" 
+| rex field=email mode=sed "s/(\r|\n)|(\r|\n)/<br\/>/g" 
+| rex field=description mode=sed "s/&/\&amp;/g" 
+| rex field=description mode=sed "s/\"/\&quot;/g" 
+| rex field=description mode=sed "s/\\\/\\\\\\\/g" 
+| rex field=description mode=sed "s/(\r|\n)|(\r|\n)/<br\/>/g" 
+| rex field=description mode=sed "s/\>/\&gt;/g" 
+| rex field=description mode=sed "s/\</\&lt;/g" 
+| rex field=comment mode=sed "s/\"/\&quot;/g" 
+| rex field=comment mode=sed "s/\\\/\\\\\\\/g" 
+| rex field=comment mode=sed "s/(\r|\n)|(\r|\n)/<br\/>/g" 
+| eval comment="<h2>Original creator</h2>".author."<p\/><h2>App</h2>".foundinapp."<p\/><h2>Time range</h2>From '<b>".latestSplunk_time."</b>', to '<b>".earliestSplunk_time."</b>'<h2>Cron schedule</h2><b><a href='https://crontab.guru/#".cron_schedule_web."'>".cron_schedule."</a></b><p\/><p\/>".dependencyInputlookup.dependencyDatamodel.dependencyMacro."<h2>Description</h2>".description."<p\/><h2>Splunk link</h2><a href='".alertURL."'>".alertURL."</a><p\/><h2>Comment</h2>".comment.supressionTime."<p\/>".email."<p\/>"."<h2>Search SPL</h2>".searchOnly 
+| eval body_create_new="{\"type\":\"page\",\"title\":\"".title."\",\"ancestors\":[{\"id\":".parentWikiPage."}], \"space\":{\"key\":\"DRIFTSWIKI\"},\"body\":{\"storage\":{\"value\":\"<p>".comment."</p>\",\"representation\":\"storage\"}}}" 
+| eval body_update="{\"id\":\"".wikiId."\",\"type\":\"page\",\"title\":\"".title."\",\"space\":{\"key\":\"DRIFTSWIKI\"},\"body\":{\"storage\":{\"value\":\"<p>".comment."</p>\",\"representation\":\"storage\"}},\"version\":{\"number\":".number."}}}" 
+| eval url_update="https://<WikiHostname>/rest/api/content/".wikiId 
+| eval url_create=if(wikiId="null","https://<WikiHostname>/rest/api/content/","null") 
+| eval body=if(wikiId="null",body_create_new,body_update) 
+| rex field=body mode=sed "s/æ/\&aelig;/g" 
+| rex field=body mode=sed "s/ø/\&oslash;/g" 
+| rex field=body mode=sed "s/å/\&aring;/g" 
+| rex field=body mode=sed "s/Æ/\&AElig;/g" 
+| rex field=body mode=sed "s/Ø/\&Oslash;/g" 
+| rex field=body mode=sed "s/Å/\&Aring;/g" 
+| eval restURL=if(wikiId="null",url_create,url_update) 
+| eval curlType=if(wikiId="null","post","put") 
+| eval Authentication="<Your Wiki Authentication>"
+| eval header="{\"Authorization\":\"".Authentication."\",\"Content-Type\":\"application/json\",\"X-Atlassian-Token\": \"no-check\"}" 
+| where isnotnull(body) AND lastChanged<900 
+| map maxsearches=1000 search="makeresults | eval curlURL=\"$restURL$\",  curlBody=\"$body$\", curlHeader=\"$header$\" | curl method=\"$curlType$\" urifield=curlURL datafield=curlBody headerfield=curlHeader debug=t stringdata=yes | eval title=\"$title$\"" 
+| where curl_status<200 OR curl_status>299
