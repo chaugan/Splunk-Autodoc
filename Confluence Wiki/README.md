@@ -1,9 +1,9 @@
 
-# Splunk Autodoc
+# Splunk Autodoc for Atlassian Confluence Wiki
 
 ## Autodoc: Create and Update
 
-Alert used to create and update Confluence Wiki based installations
+Alert used to create and update Atlassian Confluence Wiki based installations
 
 
 ## Autodoc: Delete
