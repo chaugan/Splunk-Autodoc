@@ -1,4 +1,4 @@
-# Splunk-Autodoc
+# Splunk Auto Documentation
 
 ## Welcome
 
