@@ -1,0 +1,36 @@
+| set diff 
+    [| makeresults 
+        ``` parentWikiPage: The parent page from where the new wiki pages should be created under ``` 
+    | eval parentWikiPage=<WikiPageID> 
+        ``` parentWikiUrl: For when you already have implemented the autodoc feature, this url is used to find the pages that needs to be updated, where applicable``` 
+    | eval parentWikiUrl="https://<WikiHostname>/rest/api/content/search?cql=parent=".parentWikiPage."&limit=1000" 
+    | eval Authentication="<Your Wiki Authentication>" 
+    | eval header="{\"Authorization\":\"".Authentication."\",\"Content-Type\":\"application/json\",\"X-Atlassian-Token\": \"no-check\"}" 
+    | curl method=get urifield=parentWikiUrl headerfield=header debug=t stringdata=yes 
+    | spath input=curl_message output=children path="results{}" 
+    | mvexpand children 
+    | spath input=children 
+    | table title] 
+    [| rest/servicesNS/-/-/saved/searches 
+    | search eai:acl.app=* search="*``` Autodoc*" 
+    | fields title] 
+| where isnotnull(title) 
+| join title type=inner 
+    [| makeresults 
+        ``` parentWikiPage: The parent page from where the new wiki pages should be created under ``` 
+    | eval parentWikiPage=<WikiPageID> 
+        ``` parentWikiUrl: For when you already have implemented the autodoc feature, this url is used to find the pages that needs to be updated, where applicable``` 
+    | eval parentWikiUrl="https://<WikiHostname>/rest/api/content/search?cql=parent=".parentWikiPage."&limit=1000" 
+    | eval Authentication="<Your Wiki Authentication>" 
+    | eval header="{\"Authorization\":\"".Authentication."\",\"Content-Type\":\"application/json\",\"X-Atlassian-Token\": \"no-check\"}" 
+    | curl method=get urifield=parentWikiUrl headerfield=header debug=t stringdata=yes 
+    | spath input=curl_message output=children path="results{}" 
+    | mvexpand children 
+    | spath input=children 
+    | stats count by title id 
+    | fields - count ] 
+| eval Authentication="<Your Wiki Authentication>" 
+| eval header="{\"Authorization\":\"".Authentication."\",\"Content-Type\":\"application/json\",\"X-Atlassian-Token\": \"no-check\"}" 
+| eval url_delete="https://<WikiHostname>/rest/api/content/".id 
+| where isnotnull(id) AND isnotnull(url_delete) 
+| map maxsearches=1000 search="makeresults | eval url_delete="$url_delete$", curlHeader=\"$header$\" | curl method=delete urifield=url_delete headerfield=curlHeader debug=t stringdata=yes"
