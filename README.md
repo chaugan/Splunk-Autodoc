@@ -1,5 +1,8 @@
 # Splunk Auto Documentation
 
+## Disclamer
+### This tool is still under development/conversion to be public.
+
 ## Welcome
 
 With the Splunk Autodoc, you can convert your Alerts to pretty auto documentated pages in tools like Atlassian Confluence Wiki.
