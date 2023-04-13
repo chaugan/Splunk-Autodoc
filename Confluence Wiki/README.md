@@ -5,6 +5,8 @@
 
 Alert used to create and update Atlassian Confluence Wiki based installations
 
+&dollar;result.title&dollar;
+
 
 ## Autodoc: Delete.spl
 
